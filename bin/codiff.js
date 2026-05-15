@@ -1,13 +1,30 @@
 #!/usr/bin/env node
 
-import { spawn } from 'node:child_process';
+import { execSync, spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import electron from 'electron';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const requestedPath = resolve(process.argv[2] ?? process.cwd());
+const subcommand = process.argv[2];
+const requestedPath = resolve(process.argv[3] ?? process.cwd());
+
+const killCodiff = () => {
+  try {
+    execSync('pkill -9 -f "Electron.*codiff" 2>/dev/null || true');
+  } catch {}
+};
+
+if (subcommand === 'kill') {
+  killCodiff();
+  console.log('Codiff instances killed.');
+  process.exit(0);
+}
+
+if (subcommand === 'restart') {
+  killCodiff();
+}
 
 if (!existsSync(resolve(root, 'dist/index.html')) && !process.env.ELECTRON_RENDERER_URL) {
   console.error('Codiff has not been built yet. Run `pnpm build` first.');
@@ -19,14 +36,14 @@ const child = spawn(electron, [root], {
     ...process.env,
     CODIFF_REPOSITORY_PATH: requestedPath,
   },
-  stdio: 'inherit',
+  detached: true,
+  stdio: 'ignore',
 });
 
-child.on('exit', (code, signal) => {
-  if (signal) {
-    process.kill(process.pid, signal);
-    return;
-  }
+child.unref();
 
-  process.exit(code ?? 0);
-});
+if (subcommand === 'restart') {
+  console.log('Codiff restarted.');
+} else {
+  console.log('Codiff launched.');
+}

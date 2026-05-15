@@ -384,7 +384,7 @@
 .repos-section {
   border-bottom: 1px solid var(--sidebar-border);
   flex: none;
-  padding: 8px 0 4px;
+  padding: 28px 0 4px; /* space for macOS traffic lights (hiddenInset titlebar) */
 }
 
 .repos-header {
