@@ -478,7 +478,7 @@
   display: flex;
   font-size: 13px;
   gap: 12px;
-  padding: 6px 16px;
+  padding: 28px 16px 6px; /* extra top padding for macOS traffic lights */
   white-space: nowrap;
 }
 
@@ -487,6 +487,7 @@
     background: #3f2a1f;
     border-bottom-color: #5c4633;
     color: #fdba74;
+    padding-top: 28px;
   }
 }
 

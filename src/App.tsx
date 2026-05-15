@@ -317,23 +317,6 @@ export default function App() {
       });
   }, []);
 
-  // Listen for repos added via `codiff add` from the terminal
-  useEffect(() => {
-    if (!window.codiff.onRepoAdded) {
-      return;
-    }
-
-    const handleRepoAdded = async (newRoot: string) => {
-      const freshList = await window.codiff.listRepos();
-      setRepos(freshList);
-
-      // Optionally auto-select the newly added repo
-      // await loadRepo(newRoot);
-    };
-
-    window.codiff.onRepoAdded(handleRepoAdded);
-  }, []);
-
   useEffect(
     () => () => {
       if (programmaticScrollTimerRef.current != null) {
@@ -519,6 +502,21 @@ export default function App() {
       // The app should be quitting anyway
     }
   }, []);
+
+  // Listen for repos added via `codiff add` from the terminal and auto-select them
+  useEffect(() => {
+    if (!window.codiff.onRepoAdded) {
+      return;
+    }
+
+    const handleRepoAdded = async (newRoot: string) => {
+      const freshList = await window.codiff.listRepos();
+      setRepos(freshList);
+      await loadRepo(newRoot);
+    };
+
+    window.codiff.onRepoAdded(handleRepoAdded);
+  }, [loadRepo]);
 
   if (error) {
     return (
