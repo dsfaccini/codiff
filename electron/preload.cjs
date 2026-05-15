@@ -11,4 +11,6 @@ contextBridge.exposeInMainWorld('codiff', {
   removeRepo: (root) => ipcRenderer.invoke('codiff:removeRepo', root),
   setSelectedRepo: (root) => ipcRenderer.invoke('codiff:setSelectedRepo', root),
   showInFolder: (path) => ipcRenderer.invoke('codiff:showInFolder', path),
+  getBuildInfo: () => ipcRenderer.invoke('codiff:getBuildInfo'),
+  restartApp: () => ipcRenderer.invoke('codiff:restartApp'),
 });

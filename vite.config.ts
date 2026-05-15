@@ -1,3 +1,6 @@
+import { execFileSync } from 'node:child_process';
+import { writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import nkzw from '@nkzw/oxlint-config';
 import babel from '@rolldown/plugin-babel';
 import tailwindcss from '@tailwindcss/vite';
@@ -32,6 +35,27 @@ export default defineConfig({
     options: { typeAware: true, typeCheck: true },
   },
   plugins: [
+    {
+      closeBundle() {
+        try {
+          const commit = execFileSync('git', ['rev-parse', '--short', 'HEAD'], {
+            encoding: 'utf8',
+            stdio: ['ignore', 'pipe', 'ignore'],
+          }).trim();
+
+          const info = {
+            builtAt: new Date().toISOString(),
+            commit,
+          };
+
+          const outPath = resolve(process.cwd(), 'dist/build-info.json');
+          writeFileSync(outPath, JSON.stringify(info, null, 2) + '\n');
+        } catch {
+          // Best effort — don't fail the build if git is unavailable
+        }
+      },
+      name: 'codiff-build-info',
+    },
     babel({
       presets: [reactCompilerPreset()],
     }),

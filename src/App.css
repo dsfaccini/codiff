@@ -456,3 +456,54 @@
   min-height: 0;
   flex: 1;
 }
+
+/* Build staleness warning (in-app) */
+.build-warning {
+  align-items: center;
+  background: #fff7ed;
+  border-bottom: 1px solid #fed7aa;
+  color: #9f3412;
+  display: flex;
+  font-size: 13px;
+  gap: 12px;
+  padding: 6px 16px;
+  white-space: nowrap;
+}
+
+@media (prefers-color-scheme: dark) {
+  .build-warning {
+    background: #3f2a1f;
+    border-bottom-color: #5c4633;
+    color: #fdba74;
+  }
+}
+
+.build-warning-restart {
+  background: #c2410f;
+  border: none;
+  border-radius: 999px;
+  color: white;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 14px;
+}
+
+.build-warning-restart:hover {
+  background: #9a330c;
+}
+
+.build-warning-dismiss {
+  background: transparent;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  color: inherit;
+  cursor: pointer;
+  font-size: 12px;
+  opacity: 0.75;
+  padding: 3px 10px;
+}
+
+.build-warning-dismiss:hover {
+  opacity: 1;
+}

@@ -1,6 +1,7 @@
-const { existsSync } = require('node:fs');
+const { existsSync, readFileSync } = require('node:fs');
 const { dirname, join, relative, resolve } = require('node:path');
 const { pathToFileURL } = require('node:url');
+const { execFileSync } = require('node:child_process');
 const {
   app,
   BrowserWindow,
@@ -23,6 +24,45 @@ const root = dirname(__dirname);
 const windowSelectedRepos = new Map();
 
 const getLaunchPath = () => resolve(process.env.CODIFF_REPOSITORY_PATH || process.cwd());
+
+const getCurrentCommit = () => {
+  try {
+    return execFileSync('git', ['rev-parse', '--short', 'HEAD'], {
+      cwd: root,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch {
+    return null;
+  }
+};
+
+const getBuildInfo = () => {
+  const buildInfoPath = join(root, 'dist', 'build-info.json');
+  if (!existsSync(buildInfoPath)) {
+    return { isStale: false };
+  }
+
+  try {
+    const raw = readFileSync(buildInfoPath, 'utf8');
+    const info = JSON.parse(raw);
+    const current = getCurrentCommit();
+
+    if (!current || !info.commit) {
+      return { isStale: false };
+    }
+
+    const isStale = current !== info.commit;
+    return {
+      builtCommit: info.commit,
+      builtAt: info.builtAt,
+      currentCommit: current,
+      isStale,
+    };
+  } catch {
+    return { isStale: false };
+  }
+};
 
 const createWindow = (repositoryPath) => {
   const display = screen.getPrimaryDisplay();
@@ -202,4 +242,13 @@ ipcMain.handle('codiff:setSelectedRepo', async (event, root) => {
 
 ipcMain.handle('codiff:getRepositoryStateForRoot', async (_event, root) => {
   return getRepoState(root);
+});
+
+ipcMain.handle('codiff:getBuildInfo', () => {
+  return getBuildInfo();
+});
+
+ipcMain.handle('codiff:restartApp', () => {
+  app.relaunch();
+  app.quit();
 });

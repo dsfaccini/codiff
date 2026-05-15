@@ -243,6 +243,12 @@ export default function App() {
   const reviewRef = useRef<HTMLElement | null>(null);
   const initialLoadDone = useRef(false);
   const selectedRootRef = useRef<string | null>(null);
+  const [buildInfo, setBuildInfo] = useState<{
+    builtCommit?: string;
+    currentCommit?: string;
+    isStale: boolean;
+  } | null>(null);
+  const [buildWarningDismissed, setBuildWarningDismissed] = useState(false);
 
   // Load the persisted repo list on mount. The main process already auto-added any
   // launch path (from CLI or second-instance). We pick the most recently added one
@@ -295,6 +301,20 @@ export default function App() {
     return () => {
       canceled = true;
     };
+  }, []);
+
+  // Check once on mount whether the running build is older than the current source.
+  useEffect(() => {
+    window.codiff
+      .getBuildInfo?.()
+      .then((info) => {
+        if (info?.isStale) {
+          setBuildInfo(info);
+        }
+      })
+      .catch(() => {
+        // Non-fatal
+      });
   }, []);
 
   useEffect(
@@ -475,6 +495,14 @@ export default function App() {
     [selectedRoot, loadRepo],
   );
 
+  const handleRestart = useCallback(async () => {
+    try {
+      await window.codiff.restartApp?.();
+    } catch {
+      // The app should be quitting anyway
+    }
+  }, []);
+
   if (error) {
     return (
       <main className="empty-state">
@@ -557,86 +585,108 @@ export default function App() {
     );
   });
 
+  const showBuildWarning = buildInfo?.isStale && !buildWarningDismissed;
+
   return (
-    <div className="app-shell">
-      <aside className="sidebar squircle">
-        {/* Repositories list (Zed-style switcher) */}
-        <div className="repos-section">
-          <div className="repos-header">
-            <span className="sidebar-title">Repositories</span>
-            <button
-              aria-label="Add repository folder"
-              className="icon-button add-repo-btn"
-              onClick={addCurrentFolder}
-              title="Add folder"
-              type="button"
-            >
-              +
-            </button>
-          </div>
-          <div className="repo-list">
-            {repoRows.length > 0 ? (
-              repoRows
-            ) : (
-              <div className="repo-empty-hint">No repositories</div>
-            )}
-          </div>
+    <>
+      {showBuildWarning && (
+        <div className="build-warning">
+          <span>
+            Newer build available ({buildInfo?.builtCommit} → {buildInfo?.currentCommit})
+          </span>
+          <button className="build-warning-restart" onClick={handleRestart} type="button">
+            Restart app
+          </button>
+          <button
+            className="build-warning-dismiss"
+            onClick={() => setBuildWarningDismissed(true)}
+            type="button"
+          >
+            Dismiss
+          </button>
         </div>
+      )}
 
-        {/* Active repo header + file tree */}
-        <div className="files-section">
-          <div className="sidebar-header">
-            <div className="sidebar-path-row">
-              <div className="sidebar-path" title={state.root}>
-                {compactPath(state.root)}
-              </div>
-            </div>
-            <div className="sidebar-title">
-              Changed Files
-              {state.files.length > 0 ? ` (${state.files.length})` : ''}
-            </div>
-          </div>
-          <Sidebar
-            files={state.files}
-            key={selectedRoot}
-            onSelectPath={selectPath}
-            selectedPath={selectedPath}
-          />
-        </div>
-      </aside>
-
-      <main className="review" onScroll={updateSelectedPathFromScroll} ref={reviewRef}>
-        {state.files.length === 0 ? (
-          <div className="empty-state" key={selectedRoot}>
-            <div className="empty-panel squircle">
-              <strong>No local changes</strong>
-              <span>{state.root}</span>
-            </div>
-          </div>
-        ) : (
-          <div className="file-list" key={selectedRoot}>
-            {state.files.map((file) => (
-              <div
-                key={file.path}
-                ref={(element) => {
-                  if (element) {
-                    fileRefs.current.set(file.path, element);
-                  } else {
-                    fileRefs.current.delete(file.path);
-                  }
-                }}
+      <div className="app-shell">
+        <aside className="sidebar squircle">
+          {/* Repositories list (Zed-style switcher) */}
+          <div className="repos-section">
+            <div className="repos-header">
+              <span className="sidebar-title">Repositories</span>
+              <button
+                aria-label="Add repository folder"
+                className="icon-button add-repo-btn"
+                onClick={addCurrentFolder}
+                title="Add folder"
+                type="button"
               >
-                <DiffFile
-                  file={file}
-                  isSelected={selectedPath === file.path}
-                  isViewed={viewed[file.path] === file.fingerprint}
-                  onToggleViewed={toggleViewed}
-                />
-              </div>
-            ))}
+                +
+              </button>
+            </div>
+            <div className="repo-list">
+              {repoRows.length > 0 ? (
+                repoRows
+              ) : (
+                <div className="repo-empty-hint">No repositories</div>
+              )}
+            </div>
           </div>
-        )}
-      </main>
-    </div>
+
+          {/* Active repo header + file tree */}
+          <div className="files-section">
+            <div className="sidebar-header">
+              <div className="sidebar-path-row">
+                <div className="sidebar-path" title={state.root}>
+                  {compactPath(state.root)}
+                </div>
+              </div>
+              <div className="sidebar-title">
+                Changed Files
+                {state.files.length > 0 ? ` (${state.files.length})` : ''}
+              </div>
+            </div>
+            <Sidebar
+              files={state.files}
+              key={selectedRoot}
+              onSelectPath={selectPath}
+              selectedPath={selectedPath}
+            />
+          </div>
+        </aside>
+
+        <main className="review" onScroll={updateSelectedPathFromScroll} ref={reviewRef}>
+          {state.files.length === 0 ? (
+            <div className="empty-state" key={selectedRoot}>
+              <div className="empty-panel squircle">
+                <strong>No local changes</strong>
+                <span>{state.root}</span>
+              </div>
+            </div>
+          ) : (
+            <div className="file-list" key={selectedRoot}>
+              {state.files.map((file) => (
+                <div
+                  key={file.path}
+                  ref={(element) => {
+                    if (element) {
+                      fileRefs.current.set(file.path, element);
+                    } else {
+                      fileRefs.current.delete(file.path);
+                    }
+                  }}
+                >
+                  <DiffFile
+                    file={file}
+                    isSelected={selectedPath === file.path}
+                    isViewed={viewed[file.path] === file.fingerprint}
+                    onToggleViewed={toggleViewed}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+        </main>
+      </div>
+    </>
   );
 }
