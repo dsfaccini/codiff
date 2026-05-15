@@ -177,7 +177,6 @@ function DiffFile({
           <div className="file-path">{file.path}</div>
           {file.oldPath ? <div className="file-old-path">{file.oldPath}</div> : null}
         </div>
-        <div className={`status-badge ${file.status}`}>{statusLabel[file.status]}</div>
         <button
           aria-pressed={isViewed}
           className={`viewed-button${isViewed ? ' active' : ''}`}
@@ -187,6 +186,7 @@ function DiffFile({
           <span aria-hidden className="viewed-checkbox" />
           Viewed
         </button>
+        <div className={`status-badge ${file.status}`}>{statusLabel[file.status]}</div>
       </div>
       {isCollapsed ? null : (
         <div className="diff-sections">

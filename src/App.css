@@ -133,6 +133,8 @@
   font-weight: 600;
   letter-spacing: 0;
   text-transform: uppercase;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .file-tree {
@@ -170,11 +172,16 @@
 
 .diff-file-header {
   align-items: center;
+  background: var(--file-bg);
+  box-shadow: 0 2px 4px -2px rgb(0 0 0 / 0.06);
   display: grid;
   gap: 10px;
   grid-template-columns: 30px minmax(0, 1fr) auto auto;
   min-height: 54px;
   padding: 9px 10px;
+  position: sticky;
+  top: 0;
+  z-index: 1;
 }
 
 .icon-button,
@@ -385,6 +392,11 @@
   display: flex;
   justify-content: space-between;
   padding: 0 14px 6px;
+}
+
+.repos-header .sidebar-title {
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .repo-list {
