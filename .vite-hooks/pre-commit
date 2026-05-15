@@ -1,1 +1,55 @@
-vp staged
+#!/bin/sh
+# .vite-hooks/pre-commit
+# Custom pre-commit hook for codiff.
+#
+# - Always runs the normal staged checks (format, lint, typecheck via `vp staged`)
+# - Always runs `pnpm build` so the globally-linked `codiff` binary is never stale
+# - Re-links globally only when CODIFF_LINK_PRECOMMIT=1
+#
+# The env var can be set in your shell or stored in .env.local (gitignored).
+# We prefer .env.local for personal dev flags (Vite convention), but also read .env.
+#
+# If pnpm link -g doesn't work for you, you can force npm with:
+#   CODIFF_LINK_TOOL=npm
+#
+# After changing this file, run `vp config` (or `pnpm prepare`) to (re)install the hooks.
+
+set -eu
+
+# Move to repo root (works even if the hook is invoked from a subdirectory)
+cd "$(git rev-parse --show-toplevel)"
+
+# Load simple KEY=value vars from local env files (best-effort, no complex quoting).
+# .env.local is the recommended file for personal dev flags (Vite convention).
+set -a
+# shellcheck disable=SC1091
+[ -f .env.local ] && . .env.local 2>/dev/null || true
+# shellcheck disable=SC1091
+[ -f .env ] && . .env 2>/dev/null || true
+set +a
+
+echo "→ vp staged (format • lint • typecheck)..."
+vp staged "$@"
+
+echo "→ pnpm build (keeps the linked codiff binary in sync with source)..."
+pnpm build
+
+echo "→ pnpm test (full test suite — remove if it becomes too slow)..."
+pnpm test
+
+if [ "${CODIFF_LINK_PRECOMMIT:-0}" = "1" ]; then
+  TOOL="${CODIFF_LINK_TOOL:-pnpm}"
+
+  if [ "$TOOL" = "npm" ]; then
+    echo "→ CODIFF_LINK_PRECOMMIT=1 → npm link (forced via CODIFF_LINK_TOOL)"
+    npm link --silent 2>/dev/null || echo "(global link failed — commit continues)"
+  else
+    echo "→ CODIFF_LINK_PRECOMMIT=1 → pnpm link -g"
+    if pnpm link -g --silent 2>/dev/null; then
+      :
+    else
+      echo "pnpm link -g failed, falling back to npm link..."
+      npm link --silent 2>/dev/null || echo "(global link failed — commit continues)"
+    fi
+  fi
+fi
