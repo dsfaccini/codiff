@@ -13,4 +13,7 @@ contextBridge.exposeInMainWorld('codiff', {
   showInFolder: (path) => ipcRenderer.invoke('codiff:showInFolder', path),
   getBuildInfo: () => ipcRenderer.invoke('codiff:getBuildInfo'),
   restartApp: () => ipcRenderer.invoke('codiff:restartApp'),
+  onRepoAdded: (callback) => {
+    ipcRenderer.on('codiff:repo-added', (_event, root) => callback(root));
+  },
 });

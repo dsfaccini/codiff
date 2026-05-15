@@ -8,7 +8,20 @@ import electron from 'electron';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const subcommand = process.argv[2];
-const requestedPath = resolve(process.argv[3] ?? process.cwd());
+
+let additionalData = {};
+let launchPath = process.cwd();
+
+if (subcommand === 'add') {
+  const target = process.argv[3] || process.cwd();
+  process.env.CODIFF_CLI_COMMAND = 'add';
+  process.env.CODIFF_CLI_PATH = target;
+  launchPath = target;
+} else if (['restart', 'kill'].includes(subcommand)) {
+  // handled below
+} else {
+  launchPath = process.argv[2] || process.cwd();
+}
 
 const killCodiff = () => {
   try {
@@ -34,7 +47,7 @@ if (!existsSync(resolve(root, 'dist/index.html')) && !process.env.ELECTRON_RENDE
 const child = spawn(electron, [root], {
   env: {
     ...process.env,
-    CODIFF_REPOSITORY_PATH: requestedPath,
+    CODIFF_REPOSITORY_PATH: launchPath,
   },
   detached: true,
   stdio: 'ignore',
@@ -42,7 +55,9 @@ const child = spawn(electron, [root], {
 
 child.unref();
 
-if (subcommand === 'restart') {
+if (subcommand === 'add') {
+  console.log(`Added ${launchPath} to Codiff.`);
+} else if (subcommand === 'restart') {
   console.log('Codiff restarted.');
 } else {
   console.log('Codiff launched.');

@@ -15,6 +15,7 @@ declare global {
       getRepositoryState: (source?: ReviewSource) => Promise<RepositoryState>;
       getRepositoryStateForRoot: (root: string) => Promise<RepositoryState>;
       listRepos: () => Promise<Array<string>>;
+      onRepoAdded: (callback: (root: string) => void) => void;
       pickFolder: () => Promise<string | null>;
       removeRepo: (root: string) => Promise<void>;
       restartApp: () => Promise<void>;

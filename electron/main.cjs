@@ -25,6 +25,28 @@ const windowSelectedRepos = new Map();
 
 const getLaunchPath = () => resolve(process.env.CODIFF_REPOSITORY_PATH || process.cwd());
 
+const handleAddRepoRequest = async (anyPath) => {
+  try {
+    const realRoot = await addRepo(anyPath);
+    console.log(`[codiff] Added repository: ${realRoot}`);
+
+    // Notify all open windows so the sidebar updates live
+    BrowserWindow.getAllWindows().forEach((win) => {
+      if (!win.isDestroyed()) {
+        win.webContents.send('codiff:repo-added', realRoot);
+      }
+    });
+
+    // Bring the first window to front
+    const windows = BrowserWindow.getAllWindows();
+    if (windows.length > 0) {
+      windows[0].focus();
+    }
+  } catch (err) {
+    console.error('[codiff] Failed to add repository:', err.message);
+  }
+};
+
 const getCurrentCommit = () => {
   try {
     return execFileSync('git', ['rev-parse', '--short', 'HEAD'], {
@@ -148,11 +170,25 @@ if (!lock) {
   );
 
   app.on('second-instance', (event, commandLine, workingDirectory, additionalData) => {
-    const nextPath = resolve(additionalData?.repositoryPath || workingDirectory);
-    createWindow(nextPath);
+    if (process.env.CODIFF_CLI_COMMAND === 'add' || additionalData?.command === 'add') {
+      const pathToAdd = process.env.CODIFF_CLI_PATH || additionalData?.path || workingDirectory;
+      handleAddRepoRequest(pathToAdd);
+    } else {
+      const nextPath = resolve(additionalData?.repositoryPath || workingDirectory);
+      createWindow(nextPath);
+    }
   });
 
-  app.on('ready', () => createWindow(getLaunchPath()));
+  app.on('ready', () => {
+    if (process.env.CODIFF_CLI_COMMAND === 'add') {
+      const pathToAdd = process.env.CODIFF_CLI_PATH || getLaunchPath();
+      createWindow(pathToAdd);
+      // After window is created, add the repo
+      setTimeout(() => handleAddRepoRequest(pathToAdd), 500);
+    } else {
+      createWindow(getLaunchPath());
+    }
+  });
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
