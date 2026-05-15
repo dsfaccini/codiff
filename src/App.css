@@ -371,3 +371,88 @@
     display: none;
   }
 }
+
+/* --- Multi-repo sidebar (Zed-style) --- */
+
+.repos-section {
+  border-bottom: 1px solid var(--sidebar-border);
+  flex: none;
+  padding: 8px 0 4px;
+}
+
+.repos-header {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  padding: 0 14px 6px;
+}
+
+.repo-list {
+  max-height: 132px;
+  overflow-y: auto;
+  padding: 0 6px 6px;
+}
+
+.repo-row {
+  align-items: center;
+  border-radius: 8px;
+  color: var(--sidebar-text);
+  cursor: pointer;
+  display: flex;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  gap: 6px;
+  justify-content: space-between;
+  padding: 5px 8px;
+  white-space: nowrap;
+}
+
+.repo-row:hover {
+  background: rgb(127 127 127 / 0.08);
+}
+
+.repo-row.active {
+  background: rgb(127 127 127 / 0.14);
+  color: var(--text);
+}
+
+.repo-path {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.repo-remove {
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  opacity: 0.6;
+  padding: 0 4px;
+}
+
+.repo-remove:hover {
+  color: #c33;
+  opacity: 1;
+}
+
+.repo-empty-hint {
+  color: var(--muted);
+  font-size: 12px;
+  padding: 4px 8px;
+}
+
+.add-repo-btn {
+  font-size: 15px;
+  height: 22px;
+  width: 22px;
+}
+
+.files-section {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}

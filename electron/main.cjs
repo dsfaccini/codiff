@@ -1,11 +1,26 @@
 const { existsSync } = require('node:fs');
 const { dirname, join, relative, resolve } = require('node:path');
 const { pathToFileURL } = require('node:url');
-const { app, BrowserWindow, ipcMain, Menu, nativeTheme, screen, shell } = require('electron');
+const {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  Menu,
+  nativeTheme,
+  screen,
+  shell,
+} = require('electron');
 const { listRepositoryHistory, readRepositoryState } = require('./git-state.cjs');
+const {
+  add: addRepo,
+  getState: getRepoState,
+  list: listRepos,
+  remove: removeRepo,
+} = require('./repos.cjs');
 
 const root = dirname(__dirname);
-const windowRepositories = new Map();
+const windowSelectedRepos = new Map();
 
 const getLaunchPath = () => resolve(process.env.CODIFF_REPOSITORY_PATH || process.cwd());
 
@@ -32,9 +47,23 @@ const createWindow = (repositoryPath) => {
   });
 
   const webContentsId = window.webContents.id;
-  windowRepositories.set(webContentsId, repositoryPath);
+  // Seed with the launch path immediately so early IPC calls have something to work with.
+  // The async addRepo below will normalize it to the real git root and persist it.
+  windowSelectedRepos.set(webContentsId, repositoryPath);
+
+  // Fire-and-forget: ensure the path is a valid git repo, normalize to its root, and persist.
+  addRepo(repositoryPath)
+    .then((realRoot) => {
+      if (windowSelectedRepos.has(webContentsId)) {
+        windowSelectedRepos.set(webContentsId, realRoot);
+      }
+    })
+    .catch(() => {
+      // Not a git repo or inaccessible — leave the seeded path; renderer will surface the error on first load.
+    });
+
   window.once('ready-to-show', () => window.show());
-  window.on('closed', () => windowRepositories.delete(webContentsId));
+  window.on('closed', () => windowSelectedRepos.delete(webContentsId));
 
   const rendererURL = process.env.ELECTRON_RENDERER_URL;
   if (rendererURL) {
@@ -79,7 +108,8 @@ if (!lock) {
   );
 
   app.on('second-instance', (event, commandLine, workingDirectory, additionalData) => {
-    createWindow(resolve(additionalData?.repositoryPath || workingDirectory));
+    const nextPath = resolve(additionalData?.repositoryPath || workingDirectory);
+    createWindow(nextPath);
   });
 
   app.on('ready', () => createWindow(getLaunchPath()));
@@ -95,18 +125,22 @@ if (!lock) {
   });
 }
 
+// --- Existing per-window handlers (now resolve against the window's currently selected repo) ---
+
+const getWindowRepo = (event) => windowSelectedRepos.get(event.sender.id) || getLaunchPath();
+
 ipcMain.handle('codiff:getRepositoryState', async (event, source) => {
-  const repositoryPath = windowRepositories.get(event.sender.id) || getLaunchPath();
+  const repositoryPath = getWindowRepo(event);
   return readRepositoryState(repositoryPath, source);
 });
 
 ipcMain.handle('codiff:getRepositoryHistory', async (event, limit) => {
-  const repositoryPath = windowRepositories.get(event.sender.id) || getLaunchPath();
+  const repositoryPath = getWindowRepo(event);
   return listRepositoryHistory(repositoryPath, limit);
 });
 
 ipcMain.handle('codiff:showInFolder', async (event, filePath) => {
-  const repositoryPath = windowRepositories.get(event.sender.id) || getLaunchPath();
+  const repositoryPath = getWindowRepo(event);
   const state = await readRepositoryState(repositoryPath);
   const absolutePath = resolve(state.root, filePath);
 
@@ -118,7 +152,54 @@ ipcMain.handle('codiff:showInFolder', async (event, filePath) => {
 });
 
 ipcMain.handle('codiff:getRelativePath', async (event, filePath) => {
-  const repositoryPath = windowRepositories.get(event.sender.id) || getLaunchPath();
+  const repositoryPath = getWindowRepo(event);
   const state = await readRepositoryState(repositoryPath);
   return relative(state.root, filePath);
+});
+
+// --- New multi-repo management handlers ---
+
+ipcMain.handle('codiff:listRepos', async () => {
+  // listRepos() already prunes dead/moved paths on read
+  return listRepos();
+});
+
+ipcMain.handle('codiff:addRepo', async (_event, anyPath) => {
+  return addRepo(anyPath);
+});
+
+ipcMain.handle('codiff:removeRepo', async (_event, root) => {
+  await removeRepo(root);
+  // If any open window was viewing this root, clear its selection so it falls back gracefully
+  for (const [id, selected] of windowSelectedRepos.entries()) {
+    if (selected === root) {
+      windowSelectedRepos.delete(id);
+    }
+  }
+});
+
+ipcMain.handle('codiff:pickFolder', async () => {
+  const result = await dialog.showOpenDialog({
+    properties: ['openDirectory', 'createDirectory'],
+    title: 'Add repository',
+  });
+  if (result.canceled || result.filePaths.length === 0) {
+    return null;
+  }
+  return result.filePaths[0];
+});
+
+ipcMain.handle('codiff:setSelectedRepo', async (event, root) => {
+  const id = event.sender.id;
+  // Only allow selecting a root that is currently in the persisted list (defensive)
+  const currentList = await listRepos();
+  if (currentList.includes(root)) {
+    windowSelectedRepos.set(id, root);
+    return true;
+  }
+  return false;
+});
+
+ipcMain.handle('codiff:getRepositoryStateForRoot', async (_event, root) => {
+  return getRepoState(root);
 });

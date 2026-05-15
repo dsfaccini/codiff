@@ -231,6 +231,8 @@ function DiffFile({
 }
 
 export default function App() {
+  const [repos, setRepos] = useState<Array<string>>([]);
+  const [selectedRoot, setSelectedRoot] = useState<string | null>(null);
   const [state, setState] = useState<RepositoryState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
@@ -239,13 +241,36 @@ export default function App() {
   const programmaticScrollPathRef = useRef<string | null>(null);
   const programmaticScrollTimerRef = useRef<number | null>(null);
   const reviewRef = useRef<HTMLElement | null>(null);
+  const initialLoadDone = useRef(false);
 
+  // Load the persisted repo list on mount. The main process already auto-added any
+  // launch path (from CLI or second-instance). We pick the most recently added one
+  // so that `codiff /new/path` naturally selects the folder the user just opened.
   useEffect(() => {
     let canceled = false;
 
-    window.codiff
-      .getRepositoryState()
-      .then((nextState) => {
+    const load = async () => {
+      try {
+        const list = await window.codiff.listRepos();
+        if (canceled) {
+          return;
+        }
+
+        setRepos(list);
+
+        if (list.length === 0) {
+          setState(null);
+          setSelectedRoot(null);
+          setError(null);
+          return;
+        }
+
+        // Prefer the last entry (most recently added via CLI launch)
+        const target = list.at(-1)!;
+        setSelectedRoot(target);
+        await window.codiff.setSelectedRepo(target);
+
+        const nextState = await window.codiff.getRepositoryStateForRoot(target);
         if (canceled) {
           return;
         }
@@ -254,12 +279,15 @@ export default function App() {
         setError(null);
         setViewed(readViewed(nextState.root));
         setSelectedPath((current) => current ?? nextState.files[0]?.path ?? null);
-      })
-      .catch((error: unknown) => {
+      } catch (error: unknown) {
         if (!canceled) {
           setError(error instanceof Error ? error.message : String(error));
         }
-      });
+      }
+      initialLoadDone.current = true;
+    };
+
+    load();
 
     return () => {
       canceled = true;
@@ -360,34 +388,211 @@ export default function App() {
     [state],
   );
 
+  const loadRepo = useCallback(
+    async (root: string) => {
+      try {
+        const ok = await window.codiff.setSelectedRepo(root);
+        if (!ok) {
+          throw new Error('Repository is no longer in the list');
+        }
+
+        const nextState = await window.codiff.getRepositoryStateForRoot(root);
+        setState(nextState);
+        setError(null);
+        setViewed(readViewed(nextState.root));
+        setSelectedPath(nextState.files[0]?.path ?? null);
+        setSelectedRoot(root);
+      } catch (error: unknown) {
+        setError(error instanceof Error ? error.message : String(error));
+        // Prune it from our local list if it has become invalid
+        setRepos((current) => current.filter((r) => r !== root));
+        if (selectedRoot === root) {
+          setSelectedRoot(null);
+          setState(null);
+        }
+      }
+    },
+    [selectedRoot],
+  );
+
+  const switchRepo = useCallback(
+    (root: string) => {
+      if (root === selectedRoot) {
+        return;
+      }
+      loadRepo(root);
+    },
+    [selectedRoot, loadRepo],
+  );
+
+  const addCurrentFolder = useCallback(async () => {
+    try {
+      const picked = await window.codiff.pickFolder();
+      if (!picked) {
+        return;
+      }
+
+      const realRoot = await window.codiff.addRepo(picked);
+      const freshList = await window.codiff.listRepos();
+      setRepos(freshList);
+
+      // Select the one we just added
+      await loadRepo(realRoot);
+    } catch (error: unknown) {
+      setError(error instanceof Error ? error.message : String(error));
+    }
+  }, [loadRepo]);
+
+  const removeRepo = useCallback(
+    async (root: string, e?: { stopPropagation?: () => void }) => {
+      e?.stopPropagation?.();
+      try {
+        await window.codiff.removeRepo(root);
+        const freshList = await window.codiff.listRepos();
+        setRepos(freshList);
+
+        if (selectedRoot === root) {
+          if (freshList.length > 0) {
+            await loadRepo(freshList.at(-1)!);
+          } else {
+            setSelectedRoot(null);
+            setState(null);
+            setSelectedPath(null);
+            setViewed({});
+          }
+        }
+      } catch (error: unknown) {
+        setError(error instanceof Error ? error.message : String(error));
+      }
+    },
+    [selectedRoot, loadRepo],
+  );
+
   if (error) {
     return (
       <main className="empty-state">
         <div className="empty-panel squircle">
           <strong>Unable to read repository</strong>
           <span>{error}</span>
+          {repos.length > 0 ? (
+            <button
+              onClick={() => {
+                setError(null);
+                if (selectedRoot) {
+                  loadRepo(selectedRoot);
+                }
+              }}
+              style={{ marginTop: 12 }}
+              type="button"
+            >
+              Retry
+            </button>
+          ) : null}
         </div>
       </main>
     );
   }
 
-  if (!state) {
+  // No repositories registered yet — first-run experience
+  if (repos.length === 0) {
+    return (
+      <main className="empty-state">
+        <div className="empty-panel squircle">
+          <strong>Welcome to Codiff</strong>
+          <span style={{ maxWidth: 320, textAlign: 'center' }}>
+            Add a Git repository to start reviewing its staged and unstaged changes.
+          </span>
+          <button
+            onClick={addCurrentFolder}
+            style={{
+              background: 'var(--viewed)',
+              border: 'none',
+              borderRadius: 999,
+              color: 'white',
+              cursor: 'pointer',
+              marginTop: 16,
+              padding: '6px 18px',
+            }}
+            type="button"
+          >
+            Add folder
+          </button>
+        </div>
+      </main>
+    );
+  }
+
+  // We have repos in the list but nothing loaded yet (very early in initial mount)
+  if (!state || !selectedRoot) {
     return <main className="loading">Loading</main>;
   }
+
+  const repoRows = repos.map((root) => {
+    const isActive = root === selectedRoot;
+    return (
+      <div
+        className={`repo-row${isActive ? ' active' : ''}`}
+        key={root}
+        onClick={() => switchRepo(root)}
+        title={root}
+      >
+        <span className="repo-path">{compactPath(root)}</span>
+        <button
+          aria-label="Remove repository"
+          className="repo-remove"
+          onClick={(e) => removeRepo(root, e)}
+          title="Remove from list"
+          type="button"
+        >
+          ×
+        </button>
+      </div>
+    );
+  });
 
   return (
     <div className="app-shell">
       <aside className="sidebar squircle">
-        <div className="sidebar-header">
-          <div className="sidebar-path-row">
-            <div className="sidebar-path" title={state.root}>
-              {compactPath(state.root)}
+        {/* Repositories list (Zed-style switcher) */}
+        <div className="repos-section">
+          <div className="repos-header">
+            <span className="sidebar-title">Repositories</span>
+            <button
+              aria-label="Add repository folder"
+              className="icon-button add-repo-btn"
+              onClick={addCurrentFolder}
+              title="Add folder"
+              type="button"
+            >
+              +
+            </button>
+          </div>
+          <div className="repo-list">
+            {repoRows.length > 0 ? (
+              repoRows
+            ) : (
+              <div className="repo-empty-hint">No repositories</div>
+            )}
+          </div>
+        </div>
+
+        {/* Active repo header + file tree */}
+        <div className="files-section">
+          <div className="sidebar-header">
+            <div className="sidebar-path-row">
+              <div className="sidebar-path" title={state.root}>
+                {compactPath(state.root)}
+              </div>
+            </div>
+            <div className="sidebar-title">
+              Changed Files
+              {state.files.length > 0 ? ` (${state.files.length})` : ''}
             </div>
           </div>
-          <div className="sidebar-title">Changed Files</div>
+          <Sidebar files={state.files} onSelectPath={selectPath} selectedPath={selectedPath} />
         </div>
-        <Sidebar files={state.files} onSelectPath={selectPath} selectedPath={selectedPath} />
       </aside>
+
       <main className="review" onScroll={updateSelectedPathFromScroll} ref={reviewRef}>
         {state.files.length === 0 ? (
           <div className="empty-state">
