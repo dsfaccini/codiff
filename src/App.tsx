@@ -242,6 +242,7 @@ export default function App() {
   const programmaticScrollTimerRef = useRef<number | null>(null);
   const reviewRef = useRef<HTMLElement | null>(null);
   const initialLoadDone = useRef(false);
+  const selectedRootRef = useRef<string | null>(null);
 
   // Load the persisted repo list on mount. The main process already auto-added any
   // launch path (from CLI or second-instance). We pick the most recently added one
@@ -261,6 +262,7 @@ export default function App() {
         if (list.length === 0) {
           setState(null);
           setSelectedRoot(null);
+          selectedRootRef.current = null;
           setError(null);
           return;
         }
@@ -268,6 +270,7 @@ export default function App() {
         // Prefer the last entry (most recently added via CLI launch)
         const target = list.at(-1)!;
         setSelectedRoot(target);
+        selectedRootRef.current = target;
         await window.codiff.setSelectedRepo(target);
 
         const nextState = await window.codiff.getRepositoryStateForRoot(target);
@@ -388,32 +391,35 @@ export default function App() {
     [state],
   );
 
-  const loadRepo = useCallback(
-    async (root: string) => {
-      try {
-        const ok = await window.codiff.setSelectedRepo(root);
-        if (!ok) {
-          throw new Error('Repository is no longer in the list');
-        }
-
-        const nextState = await window.codiff.getRepositoryStateForRoot(root);
-        setState(nextState);
-        setError(null);
-        setViewed(readViewed(nextState.root));
-        setSelectedPath(nextState.files[0]?.path ?? null);
-        setSelectedRoot(root);
-      } catch (error: unknown) {
-        setError(error instanceof Error ? error.message : String(error));
-        // Prune it from our local list if it has become invalid
-        setRepos((current) => current.filter((r) => r !== root));
-        if (selectedRoot === root) {
-          setSelectedRoot(null);
-          setState(null);
-        }
+  const loadRepo = useCallback(async (root: string) => {
+    try {
+      const ok = await window.codiff.setSelectedRepo(root);
+      if (!ok) {
+        throw new Error('Repository is no longer in the list');
       }
-    },
-    [selectedRoot],
-  );
+
+      const nextState = await window.codiff.getRepositoryStateForRoot(root);
+      setState(nextState);
+      setError(null);
+      setViewed(readViewed(nextState.root));
+      setSelectedPath(nextState.files[0]?.path ?? null);
+      setSelectedRoot(root);
+      selectedRootRef.current = root;
+      // Clear any stale element references from the previous repo
+      fileRefs.current.clear();
+    } catch (error: unknown) {
+      setError(error instanceof Error ? error.message : String(error));
+      // Prune it from our local list if it has become invalid
+      setRepos((current) => current.filter((r) => r !== root));
+      // If the failed root was the one we were viewing, clear the view
+      // (we compare against the current state value, not a closed-over one)
+      if (selectedRootRef.current === root) {
+        setSelectedRoot(null);
+        selectedRootRef.current = null;
+        setState(null);
+      }
+    }
+  }, []);
 
   const switchRepo = useCallback(
     (root: string) => {
@@ -456,6 +462,7 @@ export default function App() {
             await loadRepo(freshList.at(-1)!);
           } else {
             setSelectedRoot(null);
+            selectedRootRef.current = null;
             setState(null);
             setSelectedPath(null);
             setViewed({});
@@ -589,20 +596,25 @@ export default function App() {
               {state.files.length > 0 ? ` (${state.files.length})` : ''}
             </div>
           </div>
-          <Sidebar files={state.files} onSelectPath={selectPath} selectedPath={selectedPath} />
+          <Sidebar
+            files={state.files}
+            key={selectedRoot}
+            onSelectPath={selectPath}
+            selectedPath={selectedPath}
+          />
         </div>
       </aside>
 
       <main className="review" onScroll={updateSelectedPathFromScroll} ref={reviewRef}>
         {state.files.length === 0 ? (
-          <div className="empty-state">
+          <div className="empty-state" key={selectedRoot}>
             <div className="empty-panel squircle">
               <strong>No local changes</strong>
               <span>{state.root}</span>
             </div>
           </div>
         ) : (
-          <div className="file-list">
+          <div className="file-list" key={selectedRoot}>
             {state.files.map((file) => (
               <div
                 key={file.path}
