@@ -1,3 +1,7 @@
+# vite-plus / codiff local state
+.env
+.env.*
+!.env.example
 .enum_manifest.json
 .pnpm-debug.log
 /node_modules/
@@ -7,3 +11,8 @@ source_strings.json
 src/translations
 tsconfig.tsbuildinfo
 vite.config.ts.timestamp-*
+
+# vite-plus hook internals (generated runner + cache)
+.vite-hooks/_/
+
+.DS_Store
