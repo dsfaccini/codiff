@@ -1,6 +1,7 @@
 import type { CodiffConfig } from './config/types.ts';
 import type {
   AgentSkillStatus,
+  CodiffBuildInfo,
   CodiffPreferences,
   CodiffLaunchOptions,
   DiffImageContentRequest,
@@ -27,12 +28,14 @@ import type {
 declare global {
   interface Window {
     codiff: {
+      addRepository: (requestedPath: string) => Promise<string>;
       askReviewAssistant: (request: ReviewAssistantRequest) => Promise<ReviewAssistantResult>;
       createWalkthroughCommit: (
         request: WalkthroughCommitRequest,
       ) => Promise<WalkthroughCommitResult>;
       decreaseCodeFontSize: () => Promise<void>;
       getAgentSkillStatus: () => Promise<AgentSkillStatus>;
+      getBuildInfo: () => Promise<CodiffBuildInfo>;
       getConfig: () => Promise<CodiffConfig>;
       getDiffImageContent: (request: DiffImageContentRequest) => Promise<DiffImageContentResult>;
       getDiffSectionContent: (request: DiffSectionContentRequest) => Promise<DiffSection>;
@@ -47,14 +50,20 @@ declare global {
       installAgentSkill: () => Promise<AgentSkillStatus>;
       installTerminalHelper: () => Promise<TerminalHelperStatus>;
       isWindowFullScreen: () => Promise<boolean>;
+      listRepositories: () => Promise<Array<string>>;
       onConfigChanged: (callback: (config: CodiffConfig) => void) => () => void;
       onCopyPendingCommentsRequest: (callback: () => string | Promise<string>) => () => void;
       onFindInDiffs: (callback: () => void) => () => void;
+      onRepositoryAdded: (callback: (repositoryRoot: string) => void) => () => void;
       onRepositoryChanged: (callback: (change: { root: string }) => void) => () => void;
       onWindowFullScreenChanged: (callback: (isFullScreen: boolean) => void) => () => void;
       openConfigFile: () => Promise<void>;
       openFile: (path: string) => Promise<void>;
+      pickRepository: () => Promise<string | null>;
+      removeRepository: (repositoryRoot: string) => Promise<Array<string>>;
       resetCodeFontSize: () => Promise<void>;
+      restartApp: () => Promise<void>;
+      selectRepository: (repositoryRoot: string) => Promise<boolean>;
       setDiffStyle: (value: CodiffPreferences['diffStyle']) => Promise<void>;
       setShowOutdated: (value: boolean) => Promise<void>;
       setWordWrap: (value: boolean) => Promise<void>;

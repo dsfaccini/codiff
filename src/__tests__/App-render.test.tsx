@@ -85,6 +85,7 @@ const repositoryState = {
 } satisfies RepositoryState;
 
 const createCodiffMock = (overrides: Partial<Window['codiff']> = {}): Window['codiff'] => ({
+  addRepository: vi.fn(async () => '/repo'),
   askReviewAssistant: vi.fn(async () => ({
     reason: 'Unavailable in tests.',
     status: 'unavailable' as const,
@@ -98,6 +99,7 @@ const createCodiffMock = (overrides: Partial<Window['codiff']> = {}): Window['co
     installed: true,
     path: '/Users/reviewer/.codex/skills/codiff',
   })),
+  getBuildInfo: vi.fn(async () => ({ isStale: false })),
   getConfig: vi.fn(async () => createDefaultConfig()),
   getDiffImageContent: vi.fn(async () => ({
     reason: 'Unavailable in tests.',
@@ -154,14 +156,20 @@ const createCodiffMock = (overrides: Partial<Window['codiff']> = {}): Window['co
     path: '/usr/local/bin/codiff',
   })),
   isWindowFullScreen: vi.fn(async () => false),
+  listRepositories: vi.fn(async () => []),
   onConfigChanged: vi.fn(() => () => {}),
   onCopyPendingCommentsRequest: vi.fn(() => () => {}),
   onFindInDiffs: vi.fn(() => () => {}),
+  onRepositoryAdded: vi.fn(() => () => {}),
   onRepositoryChanged: vi.fn(() => () => {}),
   onWindowFullScreenChanged: vi.fn(() => () => {}),
   openConfigFile: vi.fn(async () => {}),
   openFile: vi.fn(async () => {}),
+  pickRepository: vi.fn(async () => null),
+  removeRepository: vi.fn(async () => []),
   resetCodeFontSize: vi.fn(async () => {}),
+  restartApp: vi.fn(async () => {}),
+  selectRepository: vi.fn(async () => true),
   setDiffStyle: vi.fn(async () => {}),
   setShowOutdated: vi.fn(async () => {}),
   setWordWrap: vi.fn(async () => {}),

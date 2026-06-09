@@ -60,7 +60,20 @@ Show all available options:
 codiff --help
 ```
 
-Launching Codiff in multiple repositories opens a separate native window for each repository.
+### Multiple repositories (fork)
+
+This fork manages several repositories from a **single window** via a switcher at the top of the
+sidebar, instead of opening a separate window per repository. Opened repositories are remembered
+between launches. Manage them from the terminal:
+
+```bash
+codiff add [path]   # add a repository to the running window's sidebar (defaults to cwd)
+codiff kill         # force-quit all Codiff instances
+codiff restart      # kill, then relaunch
+```
+
+When you run Codiff from source, a banner appears if the running build is older than your working
+tree, with a one-click **Restart** to pick up the latest build.
 
 ## Command Bar
 

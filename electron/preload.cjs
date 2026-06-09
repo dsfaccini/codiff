@@ -4,12 +4,14 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 /** @type {Window['codiff']} */
 const codiff = {
+  addRepository: (requestedPath) => ipcRenderer.invoke('codiff:addRepository', requestedPath),
   askReviewAssistant: (request) => ipcRenderer.invoke('codiff:askReviewAssistant', request),
   createWalkthroughCommit: (request) =>
     ipcRenderer.invoke('codiff:createWalkthroughCommit', request),
   updateWalkthroughCommitMessage: (request) =>
     ipcRenderer.invoke('codiff:updateWalkthroughCommitMessage', request),
   getAgentSkillStatus: () => ipcRenderer.invoke('codiff:getAgentSkillStatus'),
+  getBuildInfo: () => ipcRenderer.invoke('codiff:getBuildInfo'),
   getConfig: () => ipcRenderer.invoke('codiff:getConfig'),
   decreaseCodeFontSize: () => ipcRenderer.invoke('codiff:decreaseCodeFontSize'),
   getDiffSectionContent: (request) => ipcRenderer.invoke('codiff:getDiffSectionContent', request),
@@ -26,6 +28,7 @@ const codiff = {
   installTerminalHelper: () => ipcRenderer.invoke('codiff:installTerminalHelper'),
   increaseCodeFontSize: () => ipcRenderer.invoke('codiff:increaseCodeFontSize'),
   isWindowFullScreen: () => ipcRenderer.invoke('codiff:isWindowFullScreen'),
+  listRepositories: () => ipcRenderer.invoke('codiff:listRepositories'),
   onConfigChanged: (callback) => {
     /** @param {Electron.IpcRendererEvent} _event @param {import('../src/config/types.ts').CodiffConfig} nextConfig */
     const listener = (_event, nextConfig) => callback(nextConfig);
@@ -62,6 +65,12 @@ const codiff = {
     ipcRenderer.on('codiff:windowFullScreenChanged', listener);
     return () => ipcRenderer.removeListener('codiff:windowFullScreenChanged', listener);
   },
+  onRepositoryAdded: (callback) => {
+    /** @param {Electron.IpcRendererEvent} _event @param {string} repositoryRoot */
+    const listener = (_event, repositoryRoot) => callback(repositoryRoot);
+    ipcRenderer.on('codiff:repositoryAdded', listener);
+    return () => ipcRenderer.removeListener('codiff:repositoryAdded', listener);
+  },
   onRepositoryChanged: (callback) => {
     /** @param {Electron.IpcRendererEvent} _event @param {{root: string}} change */
     const listener = (_event, change) => callback(change);
@@ -70,6 +79,12 @@ const codiff = {
   },
   openConfigFile: () => ipcRenderer.invoke('codiff:openConfigFile'),
   openFile: (path) => ipcRenderer.invoke('codiff:openFile', path),
+  pickRepository: () => ipcRenderer.invoke('codiff:pickRepository'),
+  removeRepository: (repositoryRoot) =>
+    ipcRenderer.invoke('codiff:removeRepository', repositoryRoot),
+  restartApp: () => ipcRenderer.invoke('codiff:restartApp'),
+  selectRepository: (repositoryRoot) =>
+    ipcRenderer.invoke('codiff:selectRepository', repositoryRoot),
   setDiffStyle: (value) => ipcRenderer.invoke('codiff:setDiffStyle', value),
   setShowOutdated: (value) => ipcRenderer.invoke('codiff:setShowOutdated', value),
   setWordWrap: (value) => ipcRenderer.invoke('codiff:setWordWrap', value),

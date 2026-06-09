@@ -1,5 +1,6 @@
 // @ts-check
 
+const { execFileSync } = require('node:child_process');
 const { existsSync, readFileSync } = require('node:fs');
 const { dirname, join, relative, resolve } = require('node:path');
 const { pathToFileURL } = require('node:url');
@@ -52,6 +53,12 @@ const {
 } = require('./window-identity.cjs');
 const { createPendingCommentsClipboardController } = require('./pending-comments.cjs');
 const {
+  addRepository,
+  listRepositories,
+  removeRepository,
+  resolveGitRoot,
+} = require('./repos.cjs');
+const {
   getCommandLineLaunchOptions,
   getCommandLineRepositoryPath,
   getInitialRepositoryPath,
@@ -73,12 +80,13 @@ const {
 
 /**
  * @typedef {import('../src/config/types.ts').CodiffConfig} CodiffConfig
+ * @typedef {import('../src/types.ts').CodiffBuildInfo} CodiffBuildInfo
  * @typedef {import('../src/types.ts').CodiffLaunchOptions} CodiffLaunchOptions
  * @typedef {import('../src/types.ts').CodiffTheme} CodiffTheme
  * @typedef {import('../src/types.ts').ReviewSource} ReviewSource
  * @typedef {{key: string; repositoryRoot: string; sourceKey: string}} WindowIdentity
  * @typedef {{direction: string; name: string; owner: string; repo: string}} GitHubRemote
- * @typedef {{repositoryPath?: string; launchOptions?: CodiffLaunchOptions}} SingleInstanceAdditionalData
+ * @typedef {{command?: string; repositoryPath?: string; launchOptions?: CodiffLaunchOptions}} SingleInstanceAdditionalData
  * @typedef {{changed: boolean; checking: boolean; interval?: ReturnType<typeof setInterval>; signature?: string}} RepositoryWatcher
  * @typedef {{args: Array<string>; command: string}} EditorCommand
  * @typedef {{launchOptions: CodiffLaunchOptions; pullRequestNumber: number | null; repositoryPath: string | null}} ParsedCommandLineArguments
@@ -265,6 +273,45 @@ const rememberLastRepositoryPath = (repositoryPath) => {
     },
   };
   writeConfig(config);
+};
+
+// Read the short commit the running app's source is currently at. Used only to
+// detect a stale build (dist/ older than the working tree) during local dev.
+const getCurrentCommit = () => {
+  try {
+    return execFileSync('git', ['rev-parse', '--short', 'HEAD'], {
+      cwd: root,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch {
+    return null;
+  }
+};
+
+/** @returns {CodiffBuildInfo} */
+const getBuildInfo = () => {
+  const buildInfoPath = join(root, 'dist', 'build-info.json');
+  if (!existsSync(buildInfoPath)) {
+    return { isStale: false };
+  }
+
+  try {
+    const info = JSON.parse(readFileSync(buildInfoPath, 'utf8'));
+    const currentCommit = getCurrentCommit();
+    if (!currentCommit || !info.commit) {
+      return { isStale: false };
+    }
+
+    return {
+      builtAt: info.builtAt,
+      builtCommit: info.commit,
+      currentCommit,
+      isStale: currentCommit !== info.commit,
+    };
+  } catch {
+    return { isStale: false };
+  }
 };
 
 /** @param {string} repositoryPath */
@@ -798,9 +845,53 @@ const focusOrCreateWindow = (
   return createWindow(repositoryPath, launchOptions, identity);
 };
 
+// Point an existing window at a different repository root (the multi-repo
+// switcher). Every IPC handler already reads `windowRepositories.get(id)`, so
+// repointing that entry is all switching requires. Switching always views the
+// working tree, so any launch source (PR/commit/branch) is dropped and the
+// change watcher is restarted against the new root.
+/** @param {import('electron').BrowserWindow} window @param {string} repositoryRoot */
+const switchWindowRepository = (window, repositoryRoot) => {
+  const webContentsId = window.webContents.id;
+  windowRepositories.set(webContentsId, repositoryRoot);
+  windowLaunchOptions.set(webContentsId, { repositoryPathProvided: true, walkthrough: false });
+  windowInitialRepositoryStates.delete(webContentsId);
+
+  const existingWatcher = repositoryWatchers.get(webContentsId);
+  if (existingWatcher?.interval) {
+    clearInterval(existingWatcher.interval);
+  }
+  repositoryWatchers.delete(webContentsId);
+  startRepositoryWatcher(window, repositoryRoot);
+};
+
+// `codiff add <path>` from the terminal: add the repo to the persisted list and
+// tell every open window to refresh its switcher and select it live.
+/** @param {string} requestedPath */
+const handleAddRepositoryRequest = async (requestedPath) => {
+  let repositoryRoot;
+  try {
+    repositoryRoot = await addRepository(requestedPath);
+  } catch {
+    return;
+  }
+
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.isDestroyed()) {
+      window.webContents.send('codiff:repositoryAdded', repositoryRoot);
+    }
+  }
+
+  const [firstWindow] = BrowserWindow.getAllWindows();
+  if (firstWindow) {
+    focusWindow(firstWindow);
+  }
+};
+
 const lock =
   !squirrelStartup &&
   app.requestSingleInstanceLock({
+    command: process.env.CODIFF_CLI_COMMAND || undefined,
     launchOptions: getLaunchOptions(),
     repositoryPath: getLaunchPath(),
   });
@@ -812,6 +903,14 @@ if (squirrelStartup || !lock) {
 
   app.on('second-instance', (event, commandLine, workingDirectory, additionalData) => {
     const data = /** @type {SingleInstanceAdditionalData} */ (additionalData || {});
+    if (data.command === 'add') {
+      void handleAddRepositoryRequest(
+        resolve(
+          data.repositoryPath || getCommandLineRepositoryPath(commandLine) || workingDirectory,
+        ),
+      );
+      return;
+    }
     const launchOptions =
       data.launchOptions || getCommandLineLaunchOptions(commandLine, workingDirectory);
     const launchPath = resolve(
@@ -1139,4 +1238,56 @@ ipcMain.handle('codiff:getRelativePath', async (event, filePath) => {
   const repositoryPath = windowRepositories.get(event.sender.id) || getLaunchPath();
   const state = await readRepositoryState(repositoryPath);
   return relative(state.root, filePath);
+});
+
+ipcMain.handle('codiff:listRepositories', () => listRepositories());
+
+ipcMain.handle('codiff:addRepository', (_event, requestedPath) => addRepository(requestedPath));
+
+ipcMain.handle('codiff:removeRepository', (_event, repositoryRoot) =>
+  removeRepository(repositoryRoot),
+);
+
+ipcMain.handle('codiff:pickRepository', async (event) => {
+  const window = BrowserWindow.fromWebContents(event.sender);
+  const options = {
+    properties: /** @type {Array<'openDirectory' | 'createDirectory'>} */ ([
+      'openDirectory',
+      'createDirectory',
+    ]),
+  };
+  const result = window
+    ? await dialog.showOpenDialog(window, options)
+    : await dialog.showOpenDialog(options);
+  if (result.canceled || !result.filePaths[0]) {
+    return null;
+  }
+  return addRepository(result.filePaths[0]);
+});
+
+// Repoint this window at a repo from the persisted list. The renderer then calls
+// getRepositoryState() as usual, which reads the updated windowRepositories entry.
+ipcMain.handle('codiff:selectRepository', async (event, repositoryRoot) => {
+  const window = BrowserWindow.fromWebContents(event.sender);
+  if (!window) {
+    return false;
+  }
+
+  const known = await listRepositories();
+  const target = known.includes(repositoryRoot)
+    ? repositoryRoot
+    : await resolveGitRoot(repositoryRoot);
+  if (!target || !known.includes(target)) {
+    return false;
+  }
+
+  switchWindowRepository(window, target);
+  return true;
+});
+
+ipcMain.handle('codiff:getBuildInfo', () => getBuildInfo());
+
+ipcMain.handle('codiff:restartApp', () => {
+  app.relaunch();
+  app.quit();
 });

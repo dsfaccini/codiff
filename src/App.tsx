@@ -6,6 +6,7 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
+import { BuildStaleBanner } from './app/components/BuildStaleBanner.tsx';
 import { CommandBar } from './app/components/CommandBar.tsx';
 import { KeyboardShortcutsHelp } from './app/components/KeyboardShortcutsHelp.tsx';
 import {
@@ -19,6 +20,7 @@ import {
   ReviewSourceLoading,
   WalkthroughOutdatedBanner,
 } from './app/components/Panels.tsx';
+import { RepoSwitcher } from './app/components/RepoSwitcher.tsx';
 import { ReviewCodeView, type ReviewDiffBlock } from './app/components/ReviewCodeView.tsx';
 import { Sidebar } from './app/components/Sidebar.tsx';
 import { CommitView } from './app/components/walkthrough/CommitView.tsx';
@@ -114,6 +116,7 @@ import { readViewed, writeViewed } from './lib/viewed.ts';
 import type {
   ChangedFile,
   AgentSkillStatus,
+  CodiffBuildInfo,
   CodiffLaunchOptions,
   CodiffPreferences,
   GitIdentity,
@@ -225,6 +228,9 @@ export default function App() {
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>('tree');
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => readSidebarWidth());
   const [state, setState] = useState<RepositoryState | null>(null);
+  const [repos, setRepos] = useState<ReadonlyArray<string>>([]);
+  const [buildInfo, setBuildInfo] = useState<CodiffBuildInfo | null>(null);
+  const [buildWarningDismissed, setBuildWarningDismissed] = useState(false);
   const [terminalHelperInstalling, setTerminalHelperInstalling] = useState(false);
   const [terminalHelperStatus, setTerminalHelperStatus] = useState<TerminalHelperStatus>(
     defaultTerminalHelperStatus,
@@ -1309,6 +1315,141 @@ export default function App() {
     [historySource, pendingSource, saveCurrentSourceSession],
   );
 
+  // Repoint this window at another repository from the switcher. Modeled on
+  // selectSource, but the root changes too, so the per-source session cache is
+  // cleared (its keys, e.g. "working-tree", are not repo-scoped). The main
+  // process resolves the new root from the updated windowRepositories entry, so
+  // a plain getRepositoryState() returns the new repo's working tree.
+  const selectRepo = useCallback(
+    (repositoryRoot: string) => {
+      if (stateRef.current?.root === repositoryRoot && !pendingSource) {
+        return;
+      }
+
+      saveCurrentSourceSession();
+      sourceSessionsRef.current.clear();
+      const request = sourceRequestRef.current + 1;
+      sourceRequestRef.current = request;
+      setPendingSource({ type: 'working-tree' });
+      setLoadError(null);
+      setFocusCommentId(null);
+      setFocusCommentRequest(0);
+      setReloadDeltaPaths(new Set());
+      setDiffSearchQuery('');
+      setActiveDiffSearchMatchIndex(0);
+      setScrollTarget(null);
+      setMainMode('review');
+
+      window.codiff
+        .selectRepository(repositoryRoot)
+        .then((selected) => {
+          if (!selected) {
+            throw new Error('Repository is no longer available.');
+          }
+          return window.codiff.getRepositoryState();
+        })
+        .then((nextState) => {
+          if (sourceRequestRef.current !== request) {
+            return;
+          }
+
+          const orderedState = { ...nextState, files: sortFiles(nextState.files) };
+          const nextViewed = usesViewedFileState(orderedState.source)
+            ? readViewed(orderedState.root)
+            : {};
+          const nextCollapsed = new Set(
+            orderedState.files
+              .filter((file) => nextViewed[file.path] === file.fingerprint)
+              .map((file) => file.path),
+          );
+
+          setState(orderedState);
+          setHistorySource(getHistorySource(orderedState.source) ?? null);
+          setHistoryEntries([]);
+          setHistoryHasMore(true);
+          setHistoryLimit(HISTORY_PAGE_SIZE);
+          setCollapsed(nextCollapsed);
+          setItemVersionByKey({});
+          setReviewComments(getReviewCommentsFromState(orderedState));
+          setReloadDeltaPaths(new Set());
+          setViewed(nextViewed);
+          setSelectedPath(orderedState.files[0]?.path ?? null);
+          setNarrativeWalkthrough(null);
+          setWalkthroughError(null);
+          setWalkthroughLoading(false);
+          setWalkthroughUnread(false);
+          setLocalChangesDetected(false);
+          setSidebarMode('tree');
+          setPendingSource(null);
+        })
+        .catch((error: unknown) => {
+          if (sourceRequestRef.current === request) {
+            setLoadError(getRepositoryLoadError(error));
+            setPendingSource(null);
+          }
+        });
+    },
+    [pendingSource, saveCurrentSourceSession],
+  );
+
+  const addRepo = useCallback(async () => {
+    const repositoryRoot = await window.codiff.pickRepository();
+    if (repositoryRoot) {
+      setRepos(await window.codiff.listRepositories());
+      selectRepo(repositoryRoot);
+    }
+  }, [selectRepo]);
+
+  const removeRepo = useCallback(
+    async (repositoryRoot: string) => {
+      const next = await window.codiff.removeRepository(repositoryRoot);
+      setRepos(next);
+      if (stateRef.current?.root === repositoryRoot) {
+        const fallback = next.at(-1);
+        if (fallback) {
+          selectRepo(fallback);
+        }
+      }
+    },
+    [selectRepo],
+  );
+
+  // Load the persisted repository list once on mount.
+  useEffect(() => {
+    window.codiff.listRepositories().then(setRepos);
+  }, []);
+
+  // Make sure the repo this window launched into shows up in the switcher. The
+  // ref guards against re-adding (and any canonical-path mismatch loop).
+  const ensuredRootsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const root = state?.root;
+    if (!root || ensuredRootsRef.current.has(root)) {
+      return;
+    }
+    ensuredRootsRef.current.add(root);
+    window.codiff
+      .addRepository(root)
+      .then(() => window.codiff.listRepositories())
+      .then(setRepos)
+      .catch(() => {});
+  }, [state?.root]);
+
+  // `codiff add` from the terminal broadcasts here: refresh and switch to it live.
+  useEffect(
+    () =>
+      window.codiff.onRepositoryAdded((repositoryRoot) => {
+        window.codiff.listRepositories().then(setRepos);
+        selectRepo(repositoryRoot);
+      }),
+    [selectRepo],
+  );
+
+  // Dev aid: detect when the running bundle is older than the working tree.
+  useEffect(() => {
+    window.codiff.getBuildInfo().then(setBuildInfo);
+  }, []);
+
   const resizeSidebar = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) {
       return;
@@ -2053,6 +2194,9 @@ export default function App() {
           ) : (
             <RepositoryLoadErrorPanel error={loadError} />
           )}
+          <button className="add-repo-button" onClick={addRepo} type="button">
+            Open a Repository…
+          </button>
         </div>
       </main>
     );
@@ -2196,6 +2340,12 @@ export default function App() {
         onReload={reloadWindow}
         visible={localChangesDetected && (pendingSource ?? state.source).type === 'working-tree'}
       />
+      <BuildStaleBanner
+        dismissed={buildWarningDismissed}
+        info={buildInfo}
+        onDismiss={() => setBuildWarningDismissed(true)}
+        onRestart={() => window.codiff.restartApp()}
+      />
       <WalkthroughOutdatedBanner
         onDismiss={() => setWalkthroughFileError(null)}
         reason={walkthroughFileError?.reason ?? null}
@@ -2236,6 +2386,15 @@ export default function App() {
         </div>
       ) : null}
       <aside className="squircle sidebar">
+        {repos.length > 0 ? (
+          <RepoSwitcher
+            activeRoot={state.root}
+            onAdd={addRepo}
+            onRemove={removeRepo}
+            onSelect={selectRepo}
+            repos={repos}
+          />
+        ) : null}
         <div className="sidebar-header">
           <div className="sidebar-path-row">
             <button

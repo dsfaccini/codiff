@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { spawn } from 'node:child_process';
+import { execSync, spawn } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
@@ -75,8 +75,40 @@ const buildWalkthroughGuide = () => {
   return `${guide}\n\n\`\`\`json\n${JSON.stringify(narrativeWalkthroughSchema, null, 2)}\n\`\`\`\n`;
 };
 
+// Force-quit every running Codiff window. Matched by the Electron process name
+// so it never touches other Electron apps.
+const killCodiff = () => {
+  try {
+    execSync('pkill -9 -f "Electron.*codiff" 2>/dev/null || true');
+  } catch {
+    // pkill exits non-zero when nothing matched — that's fine.
+  }
+};
+
 const run = async () => {
-  const parsedArguments = parseArguments(process.argv.slice(2));
+  let args = process.argv.slice(2);
+  const subcommand = args[0];
+
+  // Fork subcommands layered on top of the normal launcher:
+  //   codiff kill     — force-quit all instances
+  //   codiff restart  — kill, then relaunch
+  //   codiff add [p]  — add a repo to the running instance's sidebar (or launch)
+  let cliCommand = '';
+  let cliPath = '';
+  if (subcommand === 'kill' || subcommand === 'restart') {
+    killCodiff();
+    if (subcommand === 'kill') {
+      process.stdout.write('Codiff instances killed.\n');
+      return;
+    }
+    args = args.slice(1);
+  } else if (subcommand === 'add') {
+    cliCommand = 'add';
+    cliPath = resolve(args[1] || process.cwd());
+    args = args.slice(1);
+  }
+
+  const parsedArguments = parseArguments(args);
 
   if (parsedArguments.help) {
     process.stdout.write(formatHelpText(packageJson.version));
@@ -130,6 +162,8 @@ const run = async () => {
   const childEnv = {
     ...process.env,
     CODIFF_AGENT_BACKEND: agentBackend ?? '',
+    CODIFF_CLI_COMMAND: cliCommand,
+    CODIFF_CLI_PATH: cliPath,
     CODIFF_BRANCH_REF: branchRef ?? '',
     CODIFF_CLAUDE_SESSION_ID: claudeSessionId ?? '',
     CODIFF_COMMIT_REF: commitRef ?? '',
@@ -159,6 +193,12 @@ const run = async () => {
   });
 
   child.unref();
+
+  if (cliCommand === 'add') {
+    process.stdout.write(`Added ${cliPath} to Codiff.\n`);
+  } else if (subcommand === 'restart') {
+    process.stdout.write('Codiff restarted.\n');
+  }
 };
 
 run();

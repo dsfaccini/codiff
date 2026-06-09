@@ -1,3 +1,6 @@
+import { execFileSync } from 'node:child_process';
+import { writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import nkzw from '@nkzw/oxlint-config';
 import babel from '@rolldown/plugin-babel';
 import tailwindcss from '@tailwindcss/vite';
@@ -40,6 +43,25 @@ export default defineConfig({
     ],
   },
   plugins: [
+    // Stamp the build with its source commit so the running app can warn when it
+    // is older than the working tree (see getBuildInfo in electron/main.cjs).
+    {
+      closeBundle() {
+        try {
+          const commit = execFileSync('git', ['rev-parse', '--short', 'HEAD'], {
+            encoding: 'utf8',
+            stdio: ['ignore', 'pipe', 'ignore'],
+          }).trim();
+          writeFileSync(
+            resolve(process.cwd(), 'dist/build-info.json'),
+            `${JSON.stringify({ builtAt: new Date().toISOString(), commit }, null, 2)}\n`,
+          );
+        } catch {
+          // Best effort — never fail the build when git is unavailable.
+        }
+      },
+      name: 'codiff-build-info',
+    },
     babel({
       presets: [reactCompilerPreset()],
     }),

@@ -473,6 +473,15 @@ export type DiffImageContentResult =
 
 export type CodiffTheme = 'system' | 'light' | 'dark';
 
+// Surfaced by the dev-only "newer build available" banner: compares the commit
+// stamped into dist/build-info.json at build time against the live working tree.
+export type CodiffBuildInfo = {
+  builtAt?: string;
+  builtCommit?: string;
+  currentCommit?: string;
+  isStale: boolean;
+};
+
 export type CodiffPreferences = {
   agentBackend: 'codex' | 'claude';
   claudeModel: string;

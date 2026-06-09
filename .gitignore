@@ -1,3 +1,8 @@
+# Local env / personal dev flags
+.env
+.env.*
+!.env.example
+
 .enum_manifest.json
 .cache/
 .pnpm-debug.log
@@ -9,3 +14,8 @@ source_strings.json
 src/translations
 tsconfig.tsbuildinfo
 vite.config.ts.timestamp-*
+
+# vite-plus hook internals (generated runner + cache)
+.vite-hooks/_/
+
+.DS_Store
