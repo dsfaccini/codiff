@@ -16,9 +16,6 @@ catalogs:
       specifier: npm:@voidzero-dev/vite-plus-test@0.1.21
       version: 0.1.21
 
-overrides:
-  codiff: 'link:'
-
 importers:
 
   .:

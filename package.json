@@ -15,7 +15,7 @@
     "build": "vp build",
     "check": "vp check",
     "codiff": "node ./bin/codiff.js",
-    "dev": "vp dev --host 127.0.0.1",
+    "dev": "vp dev --host 127.0.0.1 --port 58321",
     "electron": "electron .",
     "prepare": "vp config",
     "test": "vp test"

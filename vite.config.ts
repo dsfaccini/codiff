@@ -70,6 +70,6 @@ export default defineConfig({
     },
   },
   staged: {
-    '*': 'vp check --fix',
+    '**/*.{ts,tsx,js,cjs,mjs}': 'vp check --fix',
   },
 });
